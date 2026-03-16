@@ -97,7 +97,8 @@ def build_default_scan_report_path(input_paths: list[Path]) -> Path:
     """Build default timestamped report path under scans/ with package manager label."""
     timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
     package_manager_label = detect_package_manager_label(input_paths)
-    return Path("scans") / f"scan-report_{package_manager_label}_{timestamp}.json"
+    project_root = Path(__file__).resolve().parent
+    return project_root / "scans" / f"scan-report_{package_manager_label}_{timestamp}.json"
 
 
 def detect_package_manager_label(input_paths: list[Path]) -> str:
