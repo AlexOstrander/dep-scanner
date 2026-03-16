@@ -1,0 +1,2 @@
+"""Dependency vulnerability scanner package."""
+

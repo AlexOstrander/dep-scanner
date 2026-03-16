@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dependency Vulnerability Scanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f2f2f2;
+      --surface: #ffffff;
+      --surface-muted: #f7f7f7;
+      --text: #141414;
+      --text-muted: #535353;
+      --line: #dfdfdf;
+      --primary: #000000;
+      --primary-strong: #111111;
+      --success: #129b55;
+      --danger: #d53a3a;
+      --shadow-soft: 0 10px 35px rgba(0, 0, 0, 0.1);
+      --radius-xl: 20px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Manrope", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1000px 400px at 8% -12%, #ececec 0%, transparent 58%),
+        radial-gradient(800px 360px at 100% 0%, #e8e8e8 0%, transparent 56%),
+        var(--bg);
+    }
+
+    .site-shell {
+      width: 1200px;
+      margin: 24px auto 36px;
+    }
+
+    .header-01 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(8px);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      color: var(--text);
+    }
+
+    .brand-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #000;
+      box-shadow: 0 0 0 6px #eaeaea;
+    }
+
+    .header-nav {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .header-nav .active {
+      color: #fff;
+      background: #000;
+      border-radius: 999px;
+      padding: 8px 12px;
+    }
+
+    .layout {
+      margin-top: 22px;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 18px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-soft);
+      padding: 20px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .panel-subtitle {
+      margin: 8px 0 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .field-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .field-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    textarea, input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-muted);
+      color: var(--text);
+      padding: 12px 13px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+
+    textarea {
+      min-height: 140px;
+      resize: vertical;
+    }
+
+    textarea:hover, input:hover { border-color: #c6c6c6; }
+    textarea:focus, input:focus {
+      outline: none;
+      border-color: var(--primary);
+      background: #ffffff;
+      box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.12);
+    }
+
+    input[type="file"] {
+      padding: 10px;
+      cursor: pointer;
+    }
+
+    .inline-two {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 12px;
+    }
+
+    .actions {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 11px;
+      padding: 11px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: inherit;
+      transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      color: #fff;
+      background: linear-gradient(180deg, var(--primary), var(--primary-strong));
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.26);
+    }
+
+    .btn-secondary {
+      color: var(--text);
+      background: #ededed;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn:active { transform: translateY(0); }
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .result-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .status {
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #efefef;
+      color: #222;
+    }
+
+    .status.success { background: #eaf8ef; color: var(--success); }
+    .status.error { background: #ffecec; color: var(--danger); }
+
+    pre {
+      margin: 0;
+      min-height: 500px;
+      max-height: 70vh;
+      overflow: auto;
+      background: #0f1328;
+      border-radius: var(--radius-lg);
+      border: 1px solid #1e2449;
+      color: #d9def7;
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 14px;
+    }
+
+    .hint {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="site-shell">
+    <header class="header-01">
+      <div class="brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        Dependency Vulnerability Scanner
+      </div>
+      <nav class="header-nav" aria-label="Primary">
+        <span class="active">Scan</span>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h1 class="panel-title">Run Security Scan</h1>
+        <p class="panel-subtitle">Enter server file paths, or choose manifests from your file explorer.</p>
+        <div class="field-grid">
+          <div>
+            <label class="field-label" for="inputs">Manifest Paths (server-side)</label>
+            <textarea id="inputs" placeholder="/path/to/package.json&#10;/path/to/package-lock.json"></textarea>
+          </div>
+
+          <div>
+            <label class="field-label" for="manifestFiles">File Explorer (local upload)</label>
+            <input id="manifestFiles" type="file" multiple />
+          </div>
+
+          <div>
+            <label class="field-label" for="ignoreFile">Ignore File Path (optional)</label>
+            <input id="ignoreFile" placeholder="/path/to/ignore.json" />
+          </div>
+
+          <div class="inline-two">
+            <div>
+              <label class="field-label" for="months">Unmaintained Months</label>
+              <input id="months" type="number" min="1" value="18" />
+            </div>
+            <div>
+              <label class="field-label" for="githubToken">GitHub Token (optional)</label>
+              <input id="githubToken" type="password" placeholder="ghp_..." />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="scanButton" class="btn btn-primary" onclick="runScan()">Run Scan</button>
+            <button class="btn btn-secondary" onclick="clearForm()">Clear</button>
+          </div>
+          <p class="hint">When files are selected, upload mode is used; otherwise path mode is used.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="result-head">
+          <h2 class="panel-title" style="font-size: 20px;">Scan Output</h2>
+          <span id="statusBadge" class="status">Idle</span>
+        </div>
+        <pre id="result">No scan yet.</pre>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    function setStatus(type, message) {
+      const badge = document.getElementById("statusBadge");
+      badge.className = "status";
+      if (type === "success") badge.classList.add("success");
+      if (type === "error") badge.classList.add("error");
+      badge.textContent = message;
+    }
+
+    function setScanningState(isScanning) {
+      const scanButton = document.getElementById("scanButton");
+      scanButton.disabled = isScanning;
+      scanButton.textContent = isScanning ? "Scanning..." : "Run Scan";
+    }
+
+    function clearForm() {
+      document.getElementById("inputs").value = "";
+      document.getElementById("manifestFiles").value = "";
+      document.getElementById("ignoreFile").value = "";
+      document.getElementById("months").value = "18";
+      document.getElementById("githubToken").value = "";
+      document.getElementById("result").textContent = "No scan yet.";
+      setStatus("idle", "Idle");
+    }
+
+    async function runScan() {
+      const inputLines = document.getElementById("inputs").value
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const fileInput = document.getElementById("manifestFiles");
+      const selectedFiles = fileInput.files;
+      const resultElement = document.getElementById("result");
+      resultElement.textContent = "Scanning...";
+      setStatus("idle", "Running");
+      setScanningState(true);
+
+      try {
+        if (selectedFiles.length > 0) {
+          const formData = new FormData();
+          for (const file of selectedFiles) formData.append("files", file, file.name);
+          formData.append("months_unmaintained", String(Number(document.getElementById("months").value || 18)));
+          formData.append("manual_inputs", inputLines.join("\n"));
+          formData.append("ignore_file", document.getElementById("ignoreFile").value || "");
+          formData.append("github_token", document.getElementById("githubToken").value || "");
+
+          const uploadResponse = await fetch("/scan-upload", {
+            method: "POST",
+            body: formData
+          });
+
+          const uploadPayload = await uploadResponse.json();
+          if (!uploadResponse.ok) throw new Error(uploadPayload.detail || "Upload scan failed.");
+
+          resultElement.textContent = JSON.stringify(uploadPayload, null, 2);
+          setStatus("success", "Completed");
+          return;
+        }
+
+        const response = await fetch("/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            inputs: inputLines,
+            ignore_file: document.getElementById("ignoreFile").value || null,
+            months_unmaintained: Number(document.getElementById("months").value || 18),
+            github_token: document.getElementById("githubToken").value || null
+          })
+        });
+
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Path-based scan failed.");
+        resultElement.textContent = JSON.stringify(payload, null, 2);
+        setStatus("success", "Completed");
+      } catch (error) {
+        resultElement.textContent = JSON.stringify({ error: String(error.message || error) }, null, 2);
+        setStatus("error", "Failed");
+      } finally {
+        setScanningState(false);
+      }
+    }
+  </script>
+</body>
+</html>
+

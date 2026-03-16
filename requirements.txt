@@ -1,0 +1,9 @@
+fastapi
+httpx
+jinja2
+packaging
+pydantic
+rich
+semantic_version
+uvicorn
+

@@ -1,0 +1,14 @@
+{
+  "ignore_advisories": [
+    "GHSA-xxxx-xxxx-xxxx",
+    "CVE-2023-12345"
+  ],
+  "ignore_packages": [
+    {
+      "ecosystem": "PyPI",
+      "name": "example-package",
+      "version": "1.2.3"
+    }
+  ]
+}
+
