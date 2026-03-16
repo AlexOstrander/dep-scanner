@@ -23,6 +23,7 @@ htmlcov/
 
 # Local reports/runtime output
 scan-report.json
+scans/
 *.log
 
 # Editor/OS files

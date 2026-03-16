@@ -28,6 +28,7 @@ pip install -r requirements.txt
 ./scanner.py package.json package-lock.json --json-out report.json
 ./scanner.py requirements.txt poetry.lock --ignore-file ignore-list.json
 ./scanner.py requirements.txt --months-unmaintained 24
+./scanner.py requirements.txt uv.lock --show-outdated-upgrade-options
 ```
 
 ## Add it to your ~/.bashrc and run anywhere:

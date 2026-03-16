@@ -11,14 +11,19 @@ from semantic_version import NpmSpec, Version as SemVersion
 from dep_scanner.models import Advisory, Dependency
 
 GITHUB_ADVISORY_URL = "https://api.github.com/advisories"
+GITHUB_API_VERSION = "2026-03-10"
+GITHUB_PER_PAGE = 100
+GITHUB_MAX_PAGES = 10
 
 ECOSYSTEM_MAP = {
     "npm": "npm",
     "PyPI": "pip",
     "crates.io": "rust",
+    "Go": "go",
+    "Packagist": "composer",
 }
 
-SEMVER_ECOSYSTEMS = {"npm", "crates.io"}
+SEMVER_ECOSYSTEMS = {"npm", "crates.io", "Go"}
 
 
 def query_github_advisories(
@@ -27,7 +32,11 @@ def query_github_advisories(
     github_token: str | None = None,
 ) -> dict[tuple[str, str, str], list[Advisory]]:
     """Fetch GH advisories and keep only ones affecting the exact package version."""
-    headers = {"Accept": "application/vnd.github+json"}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        "User-Agent": "dep-scanner/0.1",
+    }
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
 
@@ -39,21 +48,13 @@ def query_github_advisories(
             advisories_by_dependency[(dependency.ecosystem, dependency.name.lower(), dependency.version)] = []
             continue
 
-        response = http_client.get(
-            GITHUB_ADVISORY_URL,
-            params={"ecosystem": ecosystem, "affects": dependency.name, "per_page": 100},
+        payload = fetch_global_advisories_for_package(
+            ecosystem=ecosystem,
+            package_name=dependency.name,
+            http_client=http_client,
             headers=headers,
-            timeout=30.0,
         )
-        if response.status_code != 200:
-            advisories_by_dependency[(dependency.ecosystem, dependency.name.lower(), dependency.version)] = []
-            continue
-
-        payload = response.json()
         advisories: list[Advisory] = []
-        if not isinstance(payload, list):
-            advisories_by_dependency[(dependency.ecosystem, dependency.name.lower(), dependency.version)] = advisories
-            continue
 
         for advisory_payload in payload:
             vulnerability_specs = extract_package_specs(advisory_payload, dependency.name)
@@ -68,21 +69,22 @@ def query_github_advisories(
 
             fixed_versions: list[str] = []
             for vulnerability in advisory_payload.get("vulnerabilities", []):
-                patched = vulnerability.get("first_patched_version")
-                if isinstance(patched, dict):
-                    identifier = patched.get("identifier")
-                    if identifier:
-                        fixed_versions.append(str(identifier))
+                package_payload = vulnerability.get("package", {})
+                if not isinstance(package_payload, dict):
+                    continue
+                package_name = str(package_payload.get("name", ""))
+                if package_name.lower() != dependency.name.lower():
+                    continue
+                fixed_versions.extend(extract_fixed_versions_from_github_vulnerability(vulnerability))
 
-            cve_id = advisory_payload.get("cve_id")
-            cve_ids = [str(cve_id)] if cve_id else []
+            cve_ids = extract_cve_ids(advisory_payload)
             ghsa_id = str(advisory_payload.get("ghsa_id", "GHSA-UNKNOWN"))
             reference_url = str(advisory_payload.get("html_url", ""))
             advisories.append(
                 Advisory(
                     advisory_id=ghsa_id,
                     source="GitHub Security Advisories",
-                    severity=str(advisory_payload.get("severity", "UNKNOWN")).upper(),
+                    severity=extract_advisory_severity(advisory_payload),
                     cve_ids=cve_ids,
                     summary=str(advisory_payload.get("summary", "")),
                     details=str(advisory_payload.get("description", "")),
@@ -94,6 +96,96 @@ def query_github_advisories(
         advisories_by_dependency[(dependency.ecosystem, dependency.name.lower(), dependency.version)] = advisories
 
     return advisories_by_dependency
+
+
+def fetch_global_advisories_for_package(
+    *,
+    ecosystem: str,
+    package_name: str,
+    http_client: httpx.Client,
+    headers: dict[str, str],
+) -> list[dict]:
+    """Paginate global advisory results for an ecosystem/package filter."""
+    advisories: list[dict] = []
+    for page in range(1, GITHUB_MAX_PAGES + 1):
+        response = http_client.get(
+            GITHUB_ADVISORY_URL,
+            params={
+                "ecosystem": ecosystem,
+                "affects": package_name,
+                "per_page": GITHUB_PER_PAGE,
+                "page": page,
+            },
+            headers=headers,
+            timeout=30.0,
+        )
+        if response.status_code != 200:
+            return advisories
+
+        payload = response.json()
+        if not isinstance(payload, list):
+            return advisories
+        advisories.extend(payload)
+        if len(payload) < GITHUB_PER_PAGE:
+            break
+    return advisories
+
+
+def extract_cve_ids(advisory_payload: dict) -> list[str]:
+    """Collect CVE IDs from cve_id and identifiers arrays."""
+    cve_ids: set[str] = set()
+    cve_id = advisory_payload.get("cve_id")
+    if isinstance(cve_id, str) and cve_id.startswith("CVE-"):
+        cve_ids.add(cve_id)
+
+    identifiers = advisory_payload.get("identifiers", [])
+    if isinstance(identifiers, list):
+        for identifier in identifiers:
+            if not isinstance(identifier, dict):
+                continue
+            value = identifier.get("value")
+            if isinstance(value, str) and value.startswith("CVE-"):
+                cve_ids.add(value)
+    return sorted(cve_ids)
+
+
+def extract_fixed_versions_from_github_vulnerability(vulnerability: dict) -> list[str]:
+    """Extract fixed/patch versions from GitHub advisory vulnerability payload."""
+    fixed_versions: list[str] = []
+    patched = vulnerability.get("first_patched_version")
+    if isinstance(patched, str):
+        fixed_versions.append(patched)
+    elif isinstance(patched, dict):
+        identifier = patched.get("identifier")
+        if identifier:
+            fixed_versions.append(str(identifier))
+
+    patched_many = vulnerability.get("first_patched_versions")
+    if isinstance(patched_many, list):
+        for patched_item in patched_many:
+            if not isinstance(patched_item, dict):
+                continue
+            identifier = patched_item.get("identifier")
+            if identifier:
+                fixed_versions.append(str(identifier))
+
+    patched_versions = vulnerability.get("patched_versions")
+    if isinstance(patched_versions, str):
+        fixed_versions.extend(extract_versions_from_spec_text(patched_versions))
+    elif isinstance(patched_versions, list):
+        for patched_entry in patched_versions:
+            if isinstance(patched_entry, str):
+                fixed_versions.extend(extract_versions_from_spec_text(patched_entry))
+            elif isinstance(patched_entry, dict):
+                patched_value = patched_entry.get("identifier") or patched_entry.get("version")
+                if patched_value:
+                    fixed_versions.append(str(patched_value))
+    return fixed_versions
+
+
+def extract_versions_from_spec_text(spec_text: str) -> list[str]:
+    """Extract version-like values from range text such as '>= 1.2.3'."""
+    return re.findall(r"(?<![A-Za-z0-9])(?:\d+!)?\d+(?:\.\d+)*(?:[a-zA-Z0-9._+-]*)", spec_text)
 
 
 def extract_package_specs(advisory_payload: dict, dependency_name: str) -> list[str]:
@@ -133,7 +225,14 @@ def matches_npm_range(version: str, vulnerability_spec: str) -> bool:
 
 def normalize_for_semver(version: str) -> SemVersion | None:
     """Normalize partial versions (e.g. 1.2) to full semver (1.2.0)."""
-    parts = version.strip().split(".")
+    normalized_input = version.strip()
+    if normalized_input.startswith("v"):
+        normalized_input = normalized_input[1:]
+    if normalized_input.endswith("/go.mod"):
+        normalized_input = normalized_input[: -len("/go.mod")]
+    normalized_input = normalized_input.split("+", 1)[0]
+    normalized_input = normalized_input.split("-", 1)[0]
+    parts = normalized_input.split(".")
     while len(parts) < 3:
         parts.append("0")
     normalized = ".".join(parts[:3])
@@ -169,4 +268,28 @@ def normalize_pep440_spec(value: str) -> str:
     cleaned = re.sub(r"([<>=!~])\s+", r"\1", cleaned)
     cleaned = re.sub(r"\s+([<>=!~])", r",\1", cleaned)
     return cleaned.strip(",")
+
+
+def extract_advisory_severity(advisory_payload: dict) -> str:
+    """Choose severity from advisory level, then CVSS score when available."""
+    severity = advisory_payload.get("severity")
+    if isinstance(severity, str) and severity.strip():
+        return severity.strip().upper()
+
+    cvss_payload = advisory_payload.get("cvss", {})
+    if isinstance(cvss_payload, dict):
+        score_value = cvss_payload.get("score")
+        try:
+            score = float(score_value)
+        except (TypeError, ValueError):
+            score = None
+        if score is not None:
+            if score >= 9.0:
+                return "CRITICAL"
+            if score >= 7.0:
+                return "HIGH"
+            if score >= 4.0:
+                return "MODERATE"
+            return "LOW"
+    return "UNKNOWN"
 

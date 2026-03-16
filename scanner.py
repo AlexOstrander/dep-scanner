@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -31,8 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--json-out",
-        default="scan-report.json",
-        help="Path for machine-readable JSON report.",
+        default=None,
+        help="Path for machine-readable JSON report. Defaults to scans/scan-report_<manager>_<ISO8601>.json.",
     )
     parser.add_argument(
         "--months-unmaintained",
@@ -44,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--github-token",
         default=os.getenv("GITHUB_TOKEN"),
         help="GitHub token for advisory API rate-limit increase.",
+    )
+    parser.add_argument(
+        "--show-outdated-upgrade-options",
+        action="store_true",
+        help="Show all fixed-version upgrade options, including older/outdated ones.",
     )
     parser.add_argument(
         "--serve",
@@ -74,13 +80,54 @@ def main() -> int:
         months_unmaintained=args.months_unmaintained,
         github_token=args.github_token,
     )
-    render_human_report(report, console)
-    output_path = Path(args.json_out)
+    render_human_report(
+        report,
+        console,
+        show_outdated_upgrade_options=args.show_outdated_upgrade_options,
+    )
+    input_paths = [Path(input_path) for input_path in args.inputs]
+    output_path = Path(args.json_out) if args.json_out else build_default_scan_report_path(input_paths)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     write_json_report(report, output_path)
     console.print(f"[blue]JSON report saved to:[/blue] {output_path}")
     return 0
 
 
+def build_default_scan_report_path(input_paths: list[Path]) -> Path:
+    """Build default timestamped report path under scans/ with package manager label."""
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    package_manager_label = detect_package_manager_label(input_paths)
+    return Path("scans") / f"scan-report_{package_manager_label}_{timestamp}.json"
+
+
+def detect_package_manager_label(input_paths: list[Path]) -> str:
+    """Infer package manager label from known manifest/lockfile names."""
+    file_to_manager = {
+        "package.json": "npm",
+        "package-lock.json": "npm",
+        "yarn.lock": "npm",
+        "requirements.txt": "pypi",
+        "poetry.lock": "pypi",
+        "pipfile.lock": "pypi",
+        "uv.lock": "pypi",
+        "cargo.toml": "cargo",
+        "cargo.lock": "cargo",
+        "go.mod": "go",
+        "go.sum": "go",
+        "composer.json": "composer",
+        "composer.lock": "composer",
+    }
+
+    managers = {
+        manager
+        for path in input_paths
+        for filename, manager in file_to_manager.items()
+        if path.name.lower() == filename
+    }
+    if not managers:
+        return "mixed"
+    return "-".join(sorted(managers))
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -14,11 +14,16 @@ from dep_scanner.models import Dependency
 from dep_scanner.parsers import (
     parse_cargo_lock,
     parse_cargo_toml,
+    parse_composer_json,
+    parse_composer_lock,
+    parse_go_mod,
+    parse_go_sum,
     parse_package_json,
     parse_package_lock,
     parse_pipfile_lock,
     parse_poetry_lock,
     parse_requirements_txt,
+    parse_uv_lock,
     parse_yarn_lock,
 )
 
@@ -59,13 +64,41 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
             warnings.append("package.json provided without lockfile; dependency tree may be incomplete.")
             resolved_dependencies.extend(direct_npm_dependencies)
 
+    go_sum_path = path_set.get("go.sum")
+    go_mod_path = path_set.get("go.mod")
+    if go_sum_path:
+        direct_go_dependencies: set[str] = set()
+        if go_mod_path:
+            direct_go_dependencies = parse_go_mod(go_mod_path)
+        else:
+            warnings.append("go.sum provided without go.mod; direct dependency detection may be incomplete.")
+        resolved_dependencies.extend(parse_go_sum(go_sum_path, direct_go_dependencies))
+    elif go_mod_path:
+        warnings.append("go.mod provided without go.sum; dependency tree may be incomplete.")
+
+    composer_lock_path = path_set.get("composer.lock")
+    composer_json_path = path_set.get("composer.json")
+    if composer_lock_path:
+        direct_php_dependencies: set[str] = set()
+        if composer_json_path:
+            direct_php_dependencies = parse_composer_json(composer_json_path)
+        else:
+            warnings.append("composer.lock provided without composer.json; direct dependency detection may be incomplete.")
+        resolved_dependencies.extend(parse_composer_lock(composer_lock_path, direct_php_dependencies))
+    elif composer_json_path:
+        warnings.append("composer.json provided without composer.lock; dependency tree may be incomplete.")
+
     requirements_path = path_set.get("requirements.txt")
+    poetry_lock_path = path_set.get("poetry.lock")
+    pipfile_lock_path = path_set.get("Pipfile.lock")
+    uv_lock_path = path_set.get("uv.lock")
+
     if requirements_path:
         direct_requirements = parse_requirements_txt(requirements_path)
         direct_python_names = {requirement.name for requirement in direct_requirements}
-        poetry_lock_path = path_set.get("poetry.lock")
-        pipfile_lock_path = path_set.get("Pipfile.lock")
-        if poetry_lock_path:
+        if uv_lock_path:
+            resolved_dependencies.extend(parse_uv_lock(uv_lock_path, direct_python_names))
+        elif poetry_lock_path:
             resolved_dependencies.extend(parse_poetry_lock(poetry_lock_path, direct_python_names))
         elif pipfile_lock_path:
             resolved_dependencies.extend(parse_pipfile_lock(pipfile_lock_path, direct_python_names))
@@ -78,6 +111,15 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
                     http_client=http_client,
                 )
             )
+    elif uv_lock_path:
+        warnings.append("uv.lock provided without requirements.txt; direct dependency detection may be incomplete.")
+        resolved_dependencies.extend(parse_uv_lock(uv_lock_path, set()))
+    elif poetry_lock_path:
+        warnings.append("poetry.lock provided without requirements.txt; direct dependency detection may be incomplete.")
+        resolved_dependencies.extend(parse_poetry_lock(poetry_lock_path, set()))
+    elif pipfile_lock_path:
+        warnings.append("Pipfile.lock provided without requirements.txt; direct dependency detection may be incomplete.")
+        resolved_dependencies.extend(parse_pipfile_lock(pipfile_lock_path, set()))
 
     cargo_lock_path = path_set.get("Cargo.lock")
     if cargo_lock_path:

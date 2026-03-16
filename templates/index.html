@@ -9,6 +9,42 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
+      --bg: #050505;
+      --surface: #0d0d0d;
+      --surface-muted: #151515;
+      --text: #f5f5f5;
+      --text-muted: #b7b7b7;
+      --line: #262626;
+      --primary: #ffffff;
+      --primary-strong: #f0f0f0;
+      --primary-text: #000000;
+      --success: #5be096;
+      --danger: #ff7f7f;
+      --shadow-soft: 0 10px 35px rgba(0, 0, 0, 0.45);
+      --body-bg: #0b0b0b;
+      --header-bg: rgba(10, 10, 10, 0.9);
+      --brand-ring: #1d1d1d;
+      --brand-dot-fill: #ffffff;
+      --chip-bg: #ffffff;
+      --chip-text: #000000;
+      --focus-bg: #1b1b1b;
+      --focus-ring: rgba(255, 255, 255, 0.12);
+      --secondary-bg: #1f1f1f;
+      --secondary-text: #ffffff;
+      --secondary-line: #303030;
+      --status-bg: #1d1d1d;
+      --status-text: #f1f1f1;
+      --status-success-bg: #0f2a1a;
+      --status-success-text: #78d9a3;
+      --pre-bg: #000000;
+      --pre-line: #2a2a2a;
+      --pre-text: #f5f5f5;
+      --radius-xl: 20px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+    }
+
+    :root[data-theme="light"] {
       --bg: #f2f2f2;
       --surface: #ffffff;
       --surface-muted: #f7f7f7;
@@ -17,12 +53,28 @@
       --line: #dfdfdf;
       --primary: #000000;
       --primary-strong: #111111;
+      --primary-text: #ffffff;
       --success: #129b55;
       --danger: #d53a3a;
       --shadow-soft: 0 10px 35px rgba(0, 0, 0, 0.1);
-      --radius-xl: 20px;
-      --radius-lg: 14px;
-      --radius-md: 10px;
+      --body-bg: #f2f2f2;
+      --header-bg: rgba(255, 255, 255, 0.86);
+      --brand-ring: #eaeaea;
+      --brand-dot-fill: #000000;
+      --chip-bg: #000000;
+      --chip-text: #ffffff;
+      --focus-bg: #ffffff;
+      --focus-ring: rgba(0, 0, 0, 0.12);
+      --secondary-bg: #ededed;
+      --secondary-text: #141414;
+      --secondary-line: #dfdfdf;
+      --status-bg: #efefef;
+      --status-text: #222222;
+      --status-success-bg: #eaf8ef;
+      --status-success-text: #129b55;
+      --pre-bg: #f7f9ff;
+      --pre-line: #d8ddf2;
+      --pre-text: #10162d;
     }
 
     * { box-sizing: border-box; }
@@ -30,15 +82,21 @@
     body {
       font-family: "Manrope", sans-serif;
       color: var(--text);
-      background:
-        radial-gradient(1000px 400px at 8% -12%, #ececec 0%, transparent 58%),
-        radial-gradient(800px 360px at 100% 0%, #e8e8e8 0%, transparent 56%),
-        var(--bg);
+      background: var(--body-bg);
+      position: relative;
+    }
+
+    #vanta-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
     }
 
     .site-shell {
       width: 1200px;
       margin: 24px auto 36px;
+      position: relative;
+      z-index: 1;
     }
 
     .header-01 {
@@ -48,7 +106,7 @@
       padding: 14px 18px;
       border: 1px solid var(--line);
       border-radius: var(--radius-xl);
-      background: rgba(255, 255, 255, 0.86);
+      background: var(--header-bg);
       backdrop-filter: blur(8px);
       box-shadow: var(--shadow-soft);
     }
@@ -66,8 +124,8 @@
       width: 12px;
       height: 12px;
       border-radius: 999px;
-      background: #000;
-      box-shadow: 0 0 0 6px #eaeaea;
+      background: var(--brand-dot-fill);
+      box-shadow: 0 0 0 6px var(--brand-ring);
     }
 
     .header-nav {
@@ -80,8 +138,8 @@
     }
 
     .header-nav .active {
-      color: #fff;
-      background: #000;
+      color: var(--chip-text);
+      background: var(--chip-bg);
       border-radius: 999px;
       padding: 8px 12px;
     }
@@ -89,8 +147,13 @@
     .layout {
       margin-top: 22px;
       display: grid;
-      grid-template-columns: 1.1fr 1fr;
+      grid-template-columns: 1.1fr 1.5fr;
       gap: 18px;
+      align-items: stretch;
+    }
+
+    .layout > * {
+      min-width: 0;
     }
 
     .panel {
@@ -99,6 +162,11 @@
       border-radius: var(--radius-xl);
       box-shadow: var(--shadow-soft);
       padding: 20px;
+      min-width: 0;
+      height: 74vh;
+      min-height: 620px;
+      display: flex;
+      flex-direction: column;
     }
 
     .panel-title {
@@ -117,6 +185,8 @@
     .field-grid {
       display: grid;
       gap: 14px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
 
     .field-label {
@@ -148,8 +218,8 @@
     textarea:focus, input:focus {
       outline: none;
       border-color: var(--primary);
-      background: #ffffff;
-      box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.12);
+      background: var(--focus-bg);
+      box-shadow: 0 0 0 4px var(--focus-ring);
     }
 
     input[type="file"] {
@@ -182,14 +252,22 @@
     }
 
     .btn-primary {
-      color: #fff;
+      color: var(--primary-text);
       background: linear-gradient(180deg, var(--primary), var(--primary-strong));
-      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.26);
+      box-shadow: 0 8px 16px rgba(255, 255, 255, 0.16);
     }
 
     .btn-secondary {
-      color: var(--text);
-      background: #ededed;
+      color: var(--secondary-text);
+      background: var(--secondary-bg);
+      border: 1px solid var(--secondary-line);
+    }
+
+    .theme-toggle {
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
     }
 
     .btn:hover {
@@ -217,22 +295,26 @@
       font-weight: 700;
       border-radius: 999px;
       padding: 6px 10px;
-      background: #efefef;
-      color: #222;
+      background: var(--status-bg);
+      color: var(--status-text);
     }
 
-    .status.success { background: #eaf8ef; color: var(--success); }
+    .status.success { background: var(--status-success-bg); color: var(--status-success-text); }
     .status.error { background: #ffecec; color: var(--danger); }
 
     pre {
       margin: 0;
-      min-height: 500px;
-      max-height: 70vh;
-      overflow: auto;
-      background: #0f1328;
+      min-height: 0;
+      max-height: none;
+      height: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: auto;
+      white-space: pre;
+      background: var(--pre-bg);
       border-radius: var(--radius-lg);
-      border: 1px solid #1e2449;
-      color: #d9def7;
+      border: 1px solid var(--pre-line);
+      color: var(--pre-text);
       font-size: 12px;
       line-height: 1.45;
       padding: 14px;
@@ -243,9 +325,14 @@
       font-size: 12px;
       color: var(--text-muted);
     }
+
+    .output-panel pre {
+      flex: 1;
+    }
   </style>
 </head>
 <body>
+  <div id="vanta-bg" aria-hidden="true"></div>
   <div class="site-shell">
     <header class="header-01">
       <div class="brand">
@@ -254,11 +341,12 @@
       </div>
       <nav class="header-nav" aria-label="Primary">
         <span class="active">Scan</span>
+        <button id="themeToggle" class="btn btn-secondary theme-toggle" onclick="toggleTheme()" type="button">Theme</button>
       </nav>
     </header>
 
     <main class="layout">
-      <section class="panel">
+      <section class="panel form-panel">
         <h1 class="panel-title">Run Security Scan</h1>
         <p class="panel-subtitle">Enter server file paths, or choose manifests from your file explorer.</p>
         <div class="field-grid">
@@ -275,6 +363,11 @@
           <div>
             <label class="field-label" for="ignoreFile">Ignore File Path (optional)</label>
             <input id="ignoreFile" placeholder="/path/to/ignore.json" />
+          </div>
+
+          <div>
+            <label class="field-label" for="ignoreFileUpload">Ignore File Explorer (optional)</label>
+            <input id="ignoreFileUpload" type="file" accept=".json,application/json" />
           </div>
 
           <div class="inline-two">
@@ -296,7 +389,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel output-panel">
         <div class="result-head">
           <h2 class="panel-title" style="font-size: 20px;">Scan Output</h2>
           <span id="statusBadge" class="status">Idle</span>
@@ -307,6 +400,50 @@
   </div>
 
   <script>
+    let vantaEffect = null;
+
+    function createVanta(theme) {
+      if (!window.VANTA) return;
+      if (vantaEffect && typeof vantaEffect.destroy === "function") {
+        vantaEffect.destroy();
+      }
+      const isLight = theme === "light";
+      vantaEffect = window.VANTA.NET({
+        el: "#vanta-bg",
+        mouseControls: true,
+        touchControls: true,
+        gyroControls: false,
+        minHeight: 200.0,
+        minWidth: 200.0,
+        scale: 1.0,
+        scaleMobile: 1.0,
+        color: isLight ? 0x6f8a62 : 0x275c0b,
+        backgroundColor: isLight ? 0xf1f1f1 : 0x020202,
+        maxDistance: 26.0
+      });
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      const toggleButton = document.getElementById("themeToggle");
+      if (toggleButton) {
+        toggleButton.textContent = theme === "dark" ? "Dark Mode" : "Light Mode";
+      }
+      localStorage.setItem("depScannerTheme", theme);
+      createVanta(theme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+      applyTheme(currentTheme === "dark" ? "light" : "dark");
+    }
+
+    function initializeTheme() {
+      const savedTheme = localStorage.getItem("depScannerTheme");
+      const preferredTheme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      applyTheme(savedTheme || preferredTheme);
+    }
+
     function setStatus(type, message) {
       const badge = document.getElementById("statusBadge");
       badge.className = "status";
@@ -325,6 +462,7 @@
       document.getElementById("inputs").value = "";
       document.getElementById("manifestFiles").value = "";
       document.getElementById("ignoreFile").value = "";
+      document.getElementById("ignoreFileUpload").value = "";
       document.getElementById("months").value = "18";
       document.getElementById("githubToken").value = "";
       document.getElementById("result").textContent = "No scan yet.";
@@ -347,6 +485,9 @@
         if (selectedFiles.length > 0) {
           const formData = new FormData();
           for (const file of selectedFiles) formData.append("files", file, file.name);
+          const ignoreUploadInput = document.getElementById("ignoreFileUpload");
+          const selectedIgnoreFile = ignoreUploadInput.files[0];
+          if (selectedIgnoreFile) formData.append("ignore_file_upload", selectedIgnoreFile, selectedIgnoreFile.name);
           formData.append("months_unmaintained", String(Number(document.getElementById("months").value || 18)));
           formData.append("manual_inputs", inputLines.join("\n"));
           formData.append("ignore_file", document.getElementById("ignoreFile").value || "");
@@ -387,7 +528,12 @@
         setScanningState(false);
       }
     }
+
+    initializeTheme();
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"></script>
+  <script>createVanta(document.documentElement.getAttribute("data-theme") || "dark");</script>
 </body>
 </html>
 

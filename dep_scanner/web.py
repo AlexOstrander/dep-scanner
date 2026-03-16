@@ -3,6 +3,7 @@ from __future__ import annotations
 """FastAPI web endpoints for path-based and uploaded-file scans."""
 
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -11,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from dep_scanner.reporting import write_json_report
 from dep_scanner.scanner import run_scan
 
 
@@ -49,11 +51,17 @@ def create_app() -> FastAPI:
             months_unmaintained=request_payload.months_unmaintained,
             github_token=request_payload.github_token,
         )
-        return asdict(report)
+        report_path = build_default_scan_report_path([Path(value) for value in request_payload.inputs])
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        write_json_report(report, report_path)
+        payload = asdict(report)
+        payload["saved_report_path"] = str(report_path)
+        return payload
 
     @app.post("/scan-upload")
     async def scan_upload(
         files: list[UploadFile] = File(default_factory=list),
+        ignore_file_upload: UploadFile | None = File(default=None),
         months_unmaintained: int = Form(default=18),
         manual_inputs: str | None = Form(default=None),
         ignore_file: str | None = Form(default=None),
@@ -69,6 +77,7 @@ def create_app() -> FastAPI:
         with TemporaryDirectory() as temp_dir:
             uploaded_paths: list[Path] = []
             temp_path = Path(temp_dir)
+            uploaded_ignore_path: Path | None = None
             for uploaded_file in files:
                 filename = Path(uploaded_file.filename or "").name
                 if not filename:
@@ -78,6 +87,14 @@ def create_app() -> FastAPI:
                 target_path.write_bytes(file_content)
                 uploaded_paths.append(target_path)
 
+            if ignore_file_upload is not None:
+                ignore_filename = Path(ignore_file_upload.filename or "").name
+                if ignore_filename:
+                    ignore_target_path = temp_path / ignore_filename
+                    ignore_content = await ignore_file_upload.read()
+                    ignore_target_path.write_bytes(ignore_content)
+                    uploaded_ignore_path = ignore_target_path
+
             if not uploaded_paths:
                 if not manual_paths:
                     raise HTTPException(status_code=400, detail="Uploaded files are missing filenames.")
@@ -85,13 +102,54 @@ def create_app() -> FastAPI:
             scan_inputs = [*manual_paths, *uploaded_paths]
             report = run_scan(
                 input_paths=scan_inputs,
-                ignore_file=Path(ignore_file) if ignore_file else None,
+                ignore_file=uploaded_ignore_path or (Path(ignore_file) if ignore_file else None),
                 months_unmaintained=months_unmaintained,
                 github_token=github_token,
             )
-            return asdict(report)
+            report_path = build_default_scan_report_path(scan_inputs)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json_report(report, report_path)
+            payload = asdict(report)
+            payload["saved_report_path"] = str(report_path)
+            return payload
 
     return app
+
+
+def build_default_scan_report_path(input_paths: list[Path]) -> Path:
+    """Build default timestamped report path under scans/ with package manager label."""
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    package_manager_label = detect_package_manager_label(input_paths)
+    return Path(__file__).resolve().parent.parent / "scans" / f"scan-report_{package_manager_label}_{timestamp}.json"
+
+
+def detect_package_manager_label(input_paths: list[Path]) -> str:
+    """Infer package manager label from known manifest/lockfile names."""
+    file_to_manager = {
+        "package.json": "npm",
+        "package-lock.json": "npm",
+        "yarn.lock": "npm",
+        "requirements.txt": "pypi",
+        "poetry.lock": "pypi",
+        "pipfile.lock": "pypi",
+        "uv.lock": "pypi",
+        "cargo.toml": "cargo",
+        "cargo.lock": "cargo",
+        "go.mod": "go",
+        "go.sum": "go",
+        "composer.json": "composer",
+        "composer.lock": "composer",
+    }
+
+    managers = {
+        manager
+        for path in input_paths
+        for filename, manager in file_to_manager.items()
+        if path.name.lower() == filename
+    }
+    if not managers:
+        return "mixed"
+    return "-".join(sorted(managers))
 
 
 app = create_app()

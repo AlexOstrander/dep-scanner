@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Top-level scan orchestration and report assembly."""
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def run_scan(
             advisories = []
             advisories.extend(osv_results.get(dependency_key, []))
             advisories.extend(github_results.get(dependency_key, []))
+            advisories = normalize_advisory_text_fields(advisories)
             deduped_advisories = dedupe_advisories(advisories)
             if deduped_advisories:
                 findings.append(VulnerabilityFinding(dependency=dependency, advisories=deduped_advisories))
@@ -76,4 +78,20 @@ def dedupe_advisories(advisories: list) -> list:
     for advisory in advisories:
         deduped[advisory.advisory_id] = advisory
     return list(deduped.values())
+
+
+def normalize_advisory_text_fields(advisories: list) -> list:
+    """Normalize advisory text so escaped newline tokens become real line breaks."""
+    for advisory in advisories:
+        advisory.summary = normalize_advisory_text(advisory.summary)
+        advisory.details = normalize_advisory_text(advisory.details)
+    return advisories
+
+
+def normalize_advisory_text(value: str) -> str:
+    """Convert escaped newline markers into actual newline characters."""
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalized.replace("\\r\\n", "\n").replace("\\r", "\n").replace("\\n", "\n")
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    return re.sub(r"\n{3,}", "\n\n", normalized).strip()
 
