@@ -66,13 +66,15 @@ def render_human_report(
             if latest_fixed_version:
                 remediation_text = f"Upgrade to {latest_fixed_version}"
 
-        ordered_identifiers = dedupe_preserve_order([*advisory_ids, *cve_ids])
+        ordered_advisories = dedupe_preserve_order(advisory_ids)
+        ordered_cves = dedupe_preserve_order(cve_ids)
+        advisory_and_cve_text = "\n".join([*ordered_advisories, *ordered_cves]) or "N/A"
         vulnerabilities_table.add_row(
             finding.dependency.name,
             finding.dependency.version,
             finding.dependency.ecosystem,
             pick_highest_severity(severities),
-            " ".join(ordered_identifiers) or "N/A",
+            advisory_and_cve_text,
             remediation_text,
             format_terminal_links(links),
         )
