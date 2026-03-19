@@ -10,6 +10,7 @@ from dep_scanner.parsers import (
     parse_package_lock,
     parse_requirements_txt,
     parse_uv_lock,
+    parse_yarn_lock,
 )
 
 
@@ -206,4 +207,60 @@ def test_parse_composer_lock_extracts_dependencies(tmp_path: Path) -> None:
     assert by_name[("guzzlehttp/guzzle", "7.8.1")].is_direct is True
     assert by_name[("phpunit/phpunit", "11.4.0")].is_direct is True
     assert by_name[("psr/http-client", "1.0.3")].is_direct is False
+
+
+def test_parse_yarn_lock_yarn_v1_classic(tmp_path: Path) -> None:
+    """Parse Yarn v1 classic lockfile format."""
+    yarn_lock = tmp_path / "yarn.lock"
+    yarn_lock.write_text(
+        "\n".join(
+            [
+                '"lodash@^4.17.0":',
+                ' version "4.17.21"',
+                ' resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.21.tgz"',
+                "",
+                '"chalk@^2.0.0":',
+                ' version "2.4.2"',
+                ' resolved "https://registry.yarnpkg.com/chalk/-/chalk-2.4.2.tgz"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    dependencies = parse_yarn_lock(yarn_lock, {"lodash", "chalk"})
+    by_name = {(d.name, d.version): d for d in dependencies}
+    assert ("lodash", "4.17.21") in by_name
+    assert ("chalk", "2.4.2") in by_name
+    assert by_name[("lodash", "4.17.21")].is_direct is True
+    assert by_name[("chalk", "2.4.2")].is_direct is True
+
+
+def test_parse_yarn_lock_yarn_berry(tmp_path: Path) -> None:
+    """Parse Yarn Berry (v2+) lockfile format."""
+    yarn_lock = tmp_path / "yarn.lock"
+    yarn_lock.write_text(
+        "\n".join(
+            [
+                "__metadata:",
+                "  version: 8",
+                "  cacheKey: 10",
+                "",
+                '"lodash@npm:^4.17.0":',
+                "  version: 4.17.21",
+                '  resolution: "lodash@npm:4.17.21"',
+                "",
+                '"chalk@npm:^5.0.0":',
+                "  version: 5.3.0",
+                '  resolution: "chalk@npm:5.3.0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    dependencies = parse_yarn_lock(yarn_lock, {"lodash", "chalk"})
+    by_name = {(d.name, d.version): d for d in dependencies}
+    assert ("lodash", "4.17.21") in by_name
+    assert ("chalk", "5.3.0") in by_name
+    assert by_name[("lodash", "4.17.21")].is_direct is True
+    assert by_name[("chalk", "5.3.0")].is_direct is True
 

@@ -104,15 +104,92 @@ def dependency_name_from_path(package_path: str) -> str:
     return package_path.rsplit(marker, 1)[-1].strip("/")
 
 
+def _extract_package_name_from_berry_key(key: str) -> str:
+    """Extract package name from Yarn Berry key like 'lodash@npm:^4.17.0' or '@scope/pkg@npm:^1.0'."""
+    for protocol in ("@npm:", "@pnpm:", "@workspace:"):
+        if protocol in key:
+            return key.split(protocol, 1)[0]
+    return key.split("@", 1)[0] if "@" in key else key
+
+
 def parse_yarn_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
-    """Parse resolved npm package versions from a yarn.lock file."""
+    """Parse resolved npm package versions from yarn.lock (Yarn v1 classic and Berry v2+)."""
+    text = path.read_text(encoding="utf-8")
+    first_lines = "\n".join(text.splitlines()[:5])
+    is_berry = "__metadata:" in first_lines or re.search(r"^\s+version:\s", text, re.MULTILINE)
+
+    if is_berry:
+        return _parse_yarn_berry_lock(text, path, direct_dep_names)
+    return _parse_yarn_classic_lock(text, path, direct_dep_names)
+
+
+def _parse_yarn_berry_lock(text: str, path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse Yarn Berry (v2+) lockfile format (YAML-like with version: / resolution:)."""
+    dependencies: dict[tuple[str, str], Dependency] = {}
+    current_names: list[str] = []
+    current_version: str | None = None
+    in_metadata = False
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+
+        if stripped.startswith("__metadata:"):
+            in_metadata = True
+            continue
+        if in_metadata and indent > 0:
+            continue
+        in_metadata = False
+
+        if not line or line.startswith("#"):
+            current_names = []
+            current_version = None
+            continue
+
+        if not line.startswith(" "):
+            current_names = []
+            current_version = None
+            key_part = line.rstrip(":").strip().strip('"').strip("'")
+            if not key_part:
+                continue
+            for key in (k.strip().strip('"').strip("'") for k in key_part.split(",")):
+                if key and "@" in key:
+                    current_names.append(_extract_package_name_from_berry_key(key))
+            continue
+
+        if stripped.startswith("version:"):
+            current_version = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+        elif stripped.startswith("resolution:") and current_version is None:
+            resolution = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            if "@npm:" in resolution:
+                current_version = resolution.split("@npm:", 1)[1].strip()
+
+        if current_names and current_version:
+            for name in current_names:
+                key = (name, current_version)
+                if key not in dependencies:
+                    dependencies[key] = Dependency(
+                        name=name,
+                        version=current_version,
+                        ecosystem="npm",
+                        is_direct=name in direct_dep_names,
+                        source=str(path),
+                    )
+            current_names = []
+            current_version = None
+
+    return list(dependencies.values())
+
+
+def _parse_yarn_classic_lock(text: str, path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse Yarn v1 classic lockfile format."""
     dependencies: dict[tuple[str, str], Dependency] = {}
     current_keys: list[str] = []
     current_version: str | None = None
     current_name: str | None = None
 
     def flush_current() -> None:
-        """Persist the current yarn entry before moving to next one."""
         nonlocal current_keys, current_version, current_name
         if current_name and current_version:
             key = (current_name, current_version)
@@ -128,7 +205,7 @@ def parse_yarn_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
         current_version = None
         current_name = None
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.rstrip()
         if not line:
             flush_current()
@@ -146,8 +223,9 @@ def parse_yarn_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
             continue
 
         if line.lstrip().startswith("version "):
-            maybe_version = line.split(" ", 1)[1].strip().strip('"')
-            current_version = maybe_version
+            rest = line.split(" ", 1)[1].strip()
+            match = re.search(r'"([^"]+)"', rest)
+            current_version = match.group(1) if match else rest.strip('"')
 
     flush_current()
     return list(dependencies.values())

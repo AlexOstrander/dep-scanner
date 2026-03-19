@@ -52,10 +52,11 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
     path_set = {path.name: path for path in inputs}
 
     package_json_path = path_set.get("package.json")
+    package_lock_path = path_set.get("package-lock.json")
+    yarn_lock_path = path_set.get("yarn.lock")
+
     if package_json_path:
         direct_npm_dependencies, npm_specs = parse_package_json(package_json_path)
-        package_lock_path = path_set.get("package-lock.json")
-        yarn_lock_path = path_set.get("yarn.lock")
         if package_lock_path:
             resolved_dependencies.extend(parse_package_lock(package_lock_path, set(npm_specs.keys())))
         elif yarn_lock_path:
@@ -63,6 +64,12 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
         else:
             warnings.append("package.json provided without lockfile; dependency tree may be incomplete.")
             resolved_dependencies.extend(direct_npm_dependencies)
+    elif yarn_lock_path:
+        resolved_dependencies.extend(parse_yarn_lock(yarn_lock_path, set()))
+        warnings.append("yarn.lock provided without package.json; direct dependency detection may be incomplete.")
+    elif package_lock_path:
+        resolved_dependencies.extend(parse_package_lock(package_lock_path, set()))
+        warnings.append("package-lock.json provided without package.json; direct dependency detection may be incomplete.")
 
     go_sum_path = path_set.get("go.sum")
     go_mod_path = path_set.get("go.mod")
@@ -127,6 +134,8 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
         direct_cargo_names: set[str] = set()
         if cargo_toml_path:
             direct_cargo_names = parse_cargo_toml(cargo_toml_path)
+        else:
+            warnings.append("Cargo.lock provided without Cargo.toml; direct dependency detection may be incomplete.")
         resolved_dependencies.extend(parse_cargo_lock(cargo_lock_path, direct_cargo_names))
 
     if not resolved_dependencies:
