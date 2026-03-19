@@ -43,6 +43,14 @@ def render_human_report(
     vulnerabilities_table.add_column("Remediation", overflow="fold")
     vulnerabilities_table.add_column("Link", overflow="fold")
 
+    all_links: list[str] = []
+    for finding in scan_report.findings:
+        for advisory in finding.advisories:
+            if advisory.reference_url:
+                all_links.append(advisory.reference_url)
+    global_refs = sorted(set(all_links))
+    ref_map = {url: i + 1 for i, url in enumerate(global_refs)}
+
     for finding in scan_report.findings:
         advisory_ids = []
         cve_ids = []
@@ -76,11 +84,16 @@ def render_human_report(
             pick_highest_severity(severities),
             advisory_and_cve_text,
             remediation_text,
-            format_terminal_links(links),
+            format_terminal_links(links, ref_map),
         )
 
     if scan_report.findings:
         console.print(vulnerabilities_table)
+        if global_refs:
+            console.print()
+            console.print("[bold]References:[/bold]")
+            for i, url in enumerate(global_refs, 1):
+                console.print(f"  ref-{i}: {url}")
     else:
         console.print("[green]No vulnerabilities found.[/green]")
 
@@ -94,15 +107,17 @@ def write_json_report(scan_report: ScanReport, output_path: Path) -> None:
     output_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
-def format_terminal_links(links: list[str]) -> str:
+def format_terminal_links(links: list[str], ref_map: dict[str, int]) -> str:
     """Render clickable terminal hyperlinks with short labels."""
     unique_links = sorted(set(link for link in links if link))
     if not unique_links:
         return "N/A"
     rendered_links = []
-    for index, link in enumerate(unique_links, start=1):
-        rendered_links.append(f"[link={escape(link)}]ref-{index}[/link]")
-    return ", ".join(rendered_links)
+    for link in unique_links:
+        ref_num = ref_map.get(link)
+        if ref_num is not None:
+            rendered_links.append(f"[link={escape(link)}]ref-{ref_num}[/link]")
+    return ", ".join(rendered_links) if rendered_links else "N/A"
 
 
 def pick_latest_version(versions: list[str]) -> str | None:
