@@ -10,9 +10,20 @@ Python-based CLI and web tool that:
 
 ## Supported Inputs
 
-- JavaScript: `package.json` + `package-lock.json` or `yarn.lock`
-- Python: `requirements.txt` (optionally with `poetry.lock` or `Pipfile.lock`)
-- Additional ecosystem support: Rust (`Cargo.toml` + `Cargo.lock`)
+Manifest / lock pairs are resolved using **OSV.dev ecosystem names** so batch queries match advisory data; **GitHub Security Advisories** are queried for every ecosystem [supported by the global advisories API](https://docs.github.com/en/rest/security-advisories/global-advisories) (`rubygems`, `npm`, `pip`, `maven`, `nuget`, `composer`, `go`, `rust`, `erlang`, `actions`, `pub`, `swift`). The GitHub enum `other` has no single lockfile format and is not ingested here.
+
+- **JavaScript:** `package.json` + `package-lock.json` or `yarn.lock`
+- **Python:** `requirements.txt` (optionally with `poetry.lock`, `Pipfile.lock`, or `uv.lock`)
+- **Rust:** `Cargo.toml` + `Cargo.lock`
+- **Go:** `go.mod` + `go.sum`
+- **PHP (Composer):** `composer.json` + `composer.lock`
+- **Ruby (Bundler):** `Gemfile` (optional, for direct marking) + `Gemfile.lock`
+- **Dart / Flutter (pub):** `pubspec.yaml` (optional) + `pubspec.lock`
+- **Elixir (Hex):** `mix.exs` (optional) + `mix.lock`
+- **.NET (NuGet):** `packages.lock.json` and/or `*.csproj` (`PackageReference`)
+- **Java (Maven):** `pom.xml` (declared versions only; no `${property}` expansion)
+- **Swift (SPM):** `Package.swift` (optional, for direct marking) + `Package.resolved`
+- **GitHub Actions:** any `.yml` / `.yaml` under `.github/workflows/` (pinned `uses:` refs)
 
 ## Install
 

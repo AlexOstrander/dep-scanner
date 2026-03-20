@@ -3,6 +3,7 @@ httpx
 jinja2
 packaging
 pydantic
+pyyaml
 rich
 semantic_version
 uvicorn

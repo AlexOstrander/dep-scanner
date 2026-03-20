@@ -29,6 +29,30 @@ def test_go_uses_semver_matching() -> None:
     )
 
 
+def test_rubygems_uses_semver_matching() -> None:
+    assert is_dependency_vulnerable(
+        version="3.2.0",
+        ecosystem="RubyGems",
+        vulnerability_specs=[">=3.0.0 <3.2.1"],
+    )
+
+
+def test_maven_uses_pep440_style_matching() -> None:
+    assert is_dependency_vulnerable(
+        version="2.5.0",
+        ecosystem="Maven",
+        vulnerability_specs=[">=2.0.0,<3.0.0"],
+    )
+
+
+def test_github_actions_uses_semver_matching() -> None:
+    assert is_dependency_vulnerable(
+        version="v4",
+        ecosystem="GitHub Actions",
+        vulnerability_specs=[">=4.0.0 <5.0.0"],
+    )
+
+
 def test_extract_fixed_versions_supports_string_first_patched_version() -> None:
     fixed_versions = extract_fixed_versions_from_github_vulnerability(
         {

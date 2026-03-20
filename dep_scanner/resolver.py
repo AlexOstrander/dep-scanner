@@ -16,18 +16,48 @@ from dep_scanner.parsers import (
     parse_cargo_toml,
     parse_composer_json,
     parse_composer_lock,
+    parse_csproj_package_references,
+    parse_gemfile_direct_names,
+    parse_gemfile_lock,
+    parse_github_workflow_actions,
     parse_go_mod,
     parse_go_sum,
+    parse_mix_exs_direct_names,
+    parse_mix_lock,
     parse_package_json,
     parse_package_lock,
+    parse_package_resolved,
+    parse_package_swift_direct_names,
+    parse_packages_lock_json,
     parse_pipfile_lock,
     parse_poetry_lock,
+    parse_pom_xml,
+    parse_pubspec_lock,
+    parse_pubspec_yaml_direct_names,
     parse_requirements_txt,
     parse_uv_lock,
     parse_yarn_lock,
 )
 
 PYPI_BASE_URL = "https://pypi.org/pypi"
+
+
+def _first_input_path(inputs: list[Path], filename: str) -> Path | None:
+    """Return the first input whose basename matches ``filename``."""
+    for path in inputs:
+        if path.name == filename:
+            return path
+    return None
+
+
+def _github_workflow_paths(inputs: list[Path]) -> list[Path]:
+    """Paths under ``.github/workflows`` with YAML extensions."""
+    workflow_paths: list[Path] = []
+    for path in inputs:
+        parts_lower = [part.lower() for part in path.parts]
+        if "workflows" in parts_lower and path.suffix.lower() in (".yml", ".yaml"):
+            workflow_paths.append(path)
+    return workflow_paths
 
 
 def dedupe_dependencies(dependencies: list[Dependency]) -> list[Dependency]:
@@ -50,6 +80,7 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
     resolved_dependencies: list[Dependency] = []
 
     path_set = {path.name: path for path in inputs}
+    # Callers (e.g. run_scan) pass only paths that exist; treat ``inputs`` as the scan file list.
 
     package_json_path = path_set.get("package.json")
     package_lock_path = path_set.get("package-lock.json")
@@ -137,6 +168,57 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
         else:
             warnings.append("Cargo.lock provided without Cargo.toml; direct dependency detection may be incomplete.")
         resolved_dependencies.extend(parse_cargo_lock(cargo_lock_path, direct_cargo_names))
+
+    gemfile_lock_path = _first_input_path(inputs, "Gemfile.lock")
+    if gemfile_lock_path:
+        gemfile_path = _first_input_path(inputs, "Gemfile")
+        direct_ruby_names = parse_gemfile_direct_names(gemfile_path) if gemfile_path else set()
+        resolved_dependencies.extend(parse_gemfile_lock(gemfile_lock_path, direct_ruby_names))
+    elif _first_input_path(inputs, "Gemfile"):
+        warnings.append("Gemfile provided without Gemfile.lock; Ruby dependency tree may be incomplete.")
+
+    pubspec_lock_path = _first_input_path(inputs, "pubspec.lock")
+    if pubspec_lock_path:
+        pubspec_yaml_path = _first_input_path(inputs, "pubspec.yaml")
+        direct_pub_names = (
+            parse_pubspec_yaml_direct_names(pubspec_yaml_path) if pubspec_yaml_path else set()
+        )
+        resolved_dependencies.extend(parse_pubspec_lock(pubspec_lock_path, direct_pub_names))
+    elif _first_input_path(inputs, "pubspec.yaml"):
+        warnings.append("pubspec.yaml provided without pubspec.lock; Dart/Flutter resolution skipped.")
+
+    mix_lock_path = _first_input_path(inputs, "mix.lock")
+    if mix_lock_path:
+        mix_exs_path = _first_input_path(inputs, "mix.exs")
+        direct_mix_names = parse_mix_exs_direct_names(mix_exs_path) if mix_exs_path else set()
+        resolved_dependencies.extend(parse_mix_lock(mix_lock_path, direct_mix_names))
+    elif _first_input_path(inputs, "mix.exs"):
+        warnings.append("mix.exs provided without mix.lock; Elixir/Hex resolution skipped.")
+
+    packages_lock_path = _first_input_path(inputs, "packages.lock.json")
+    if packages_lock_path:
+        resolved_dependencies.extend(parse_packages_lock_json(packages_lock_path, set()))
+
+    for input_path in inputs:
+        if input_path.suffix.lower() == ".csproj":
+            resolved_dependencies.extend(parse_csproj_package_references(input_path))
+
+    pom_path = _first_input_path(inputs, "pom.xml")
+    if pom_path:
+        resolved_dependencies.extend(parse_pom_xml(pom_path))
+
+    package_resolved_path = _first_input_path(inputs, "Package.resolved")
+    if package_resolved_path:
+        package_swift_path = _first_input_path(inputs, "Package.swift")
+        direct_swift_names = (
+            parse_package_swift_direct_names(package_swift_path) if package_swift_path else set()
+        )
+        resolved_dependencies.extend(parse_package_resolved(package_resolved_path, direct_swift_names))
+    elif _first_input_path(inputs, "Package.swift"):
+        warnings.append("Package.swift provided without Package.resolved; Swift resolution skipped.")
+
+    for workflow_path in _github_workflow_paths(inputs):
+        resolved_dependencies.extend(parse_github_workflow_actions(workflow_path))
 
     if not resolved_dependencies:
         warnings.append("No recognized manifest/lockfile inputs found.")

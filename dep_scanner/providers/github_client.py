@@ -8,6 +8,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 from semantic_version import NpmSpec, Version as SemVersion
 
+from dep_scanner.ecosystems import GITHUB_ADVISORY_ECOSYSTEM_BY_OSV, SEMVER_RANGE_ECOSYSTEMS
 from dep_scanner.models import Advisory, Dependency
 
 GITHUB_ADVISORY_URL = "https://api.github.com/advisories"
@@ -15,15 +16,8 @@ GITHUB_API_VERSION = "2026-03-10"
 GITHUB_PER_PAGE = 100
 GITHUB_MAX_PAGES = 10
 
-ECOSYSTEM_MAP = {
-    "npm": "npm",
-    "PyPI": "pip",
-    "crates.io": "rust",
-    "Go": "go",
-    "Packagist": "composer",
-}
-
-SEMVER_ECOSYSTEMS = {"npm", "crates.io", "Go"}
+ECOSYSTEM_MAP = GITHUB_ADVISORY_ECOSYSTEM_BY_OSV
+SEMVER_ECOSYSTEMS = SEMVER_RANGE_ECOSYSTEMS
 
 
 def query_github_advisories(

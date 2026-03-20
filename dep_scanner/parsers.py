@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import re
 import tomllib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import yaml
 from packaging.requirements import Requirement
 
 from dep_scanner.models import Dependency
@@ -478,4 +480,324 @@ def parse_cargo_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]
             )
         )
     return dependencies
+
+
+def _xml_local_name(tag: str) -> str:
+    """Strip XML namespace from ElementTree tags."""
+    if "}" in tag:
+        return tag.rsplit("}", 1)[-1]
+    return tag
+
+
+def parse_gemfile_direct_names(path: Path) -> set[str]:
+    """Extract gem names declared in a Gemfile."""
+    names: set[str] = set()
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        match = re.match(r'^gem\s+["\']([^"\']+)["\']', line)
+        if match:
+            names.add(match.group(1))
+    return names
+
+
+def parse_gemfile_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse resolved gems from Gemfile.lock (Bundler)."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    in_specs = False
+    collected: dict[tuple[str, str], Dependency] = {}
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "specs:":
+            in_specs = True
+            continue
+        if in_specs:
+            if stripped and not line.startswith(" ") and not line.startswith("\t"):
+                in_specs = False
+                continue
+            match = re.match(r"^\s+(\S+)\s+\(([^)]+)\)\s*$", line)
+            if not match:
+                continue
+            name, version = match.group(1), match.group(2)
+            key = (name.lower(), version)
+            if key not in collected:
+                collected[key] = Dependency(
+                    name=name,
+                    version=version,
+                    ecosystem="RubyGems",
+                    is_direct=name in direct_dep_names,
+                    source=str(path),
+                )
+            elif name in direct_dep_names:
+                collected[key].is_direct = True
+    return list(collected.values())
+
+
+def parse_pubspec_yaml_direct_names(path: Path) -> set[str]:
+    """Extract direct and dev dependency names from pubspec.yaml."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return set()
+    names: set[str] = set()
+    for section in ("dependencies", "dev_dependencies"):
+        body = data.get(section, {})
+        if isinstance(body, dict):
+            names.update(body.keys())
+    return names
+
+
+def parse_pubspec_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse Dart/Flutter locked packages from pubspec.lock."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return []
+    packages = data.get("packages", {})
+    if not isinstance(packages, dict):
+        return []
+    dependencies: list[Dependency] = []
+    for name, meta in packages.items():
+        if not isinstance(meta, dict):
+            continue
+        version = str(meta.get("version", "")).strip()
+        if not version:
+            continue
+        dependencies.append(
+            Dependency(
+                name=name,
+                version=version,
+                ecosystem="Pub",
+                is_direct=name in direct_dep_names,
+                source=str(path),
+            )
+        )
+    return dependencies
+
+
+def parse_mix_lock(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse Hex (Elixir) locked packages from mix.lock."""
+    text = path.read_text(encoding="utf-8")
+    collected: dict[tuple[str, str], Dependency] = {}
+    for match in re.finditer(r"\{:hex,\s*:([^,}]+),\s*\"([^\"]+)\"", text):
+        raw_atom, version = match.group(1).strip(), match.group(2).strip()
+        name = raw_atom.strip(":").strip().strip('"').strip("'")
+        if not name or not version:
+            continue
+        key = (name.lower(), version)
+        if key not in collected:
+            collected[key] = Dependency(
+                name=name,
+                version=version,
+                ecosystem="Hex",
+                is_direct=name in direct_dep_names,
+                source=str(path),
+            )
+        elif name in direct_dep_names:
+            collected[key].is_direct = True
+    return list(collected.values())
+
+
+def parse_mix_exs_direct_names(path: Path) -> set[str]:
+    """Best-effort extraction of Hex package atoms from mix.exs deps block."""
+    text = path.read_text(encoding="utf-8")
+    names: set[str] = set()
+    in_deps = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0]
+        if re.search(r"\bdefp\s+deps\b", line):
+            in_deps = True
+            continue
+        if in_deps:
+            if re.match(r"^\s*end\s*$", line):
+                break
+            match = re.search(r":(\w+)\s*(?:,|\])", line)
+            if match:
+                names.add(match.group(1))
+    return names
+
+
+def parse_packages_lock_json(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse NuGet packages.lock.json (central package management / SDK lock)."""
+    payload = read_json_file(path)
+    collected: dict[tuple[str, str], Dependency] = {}
+
+    def remember(name: str, version: str, is_direct: bool) -> None:
+        if not name or not version:
+            return
+        key = (name.lower(), version)
+        existing = collected.get(key)
+        if existing is None:
+            collected[key] = Dependency(
+                name=name,
+                version=version,
+                ecosystem="NuGet",
+                is_direct=is_direct or (name in direct_dep_names),
+                source=str(path),
+            )
+        elif is_direct or name in direct_dep_names:
+            existing.is_direct = True
+
+    dependencies = payload.get("dependencies")
+    if isinstance(dependencies, dict):
+        for package_name, meta in dependencies.items():
+            if not isinstance(meta, dict):
+                continue
+            resolved = str(meta.get("resolved", "")).strip()
+            if not resolved:
+                continue
+            dep_type = str(meta.get("type", "")).lower()
+            is_direct = dep_type == "direct"
+            remember(package_name, resolved, is_direct)
+
+    targets = payload.get("targets")
+    if isinstance(targets, dict):
+        for target_body in targets.values():
+            if not isinstance(target_body, dict):
+                continue
+            for package_key, meta in target_body.items():
+                if not isinstance(meta, dict):
+                    continue
+                if "/" not in package_key:
+                    continue
+                name, version = package_key.rsplit("/", 1)
+                resolved = str(meta.get("resolved", version)).strip() or version
+                dep_type = str(meta.get("type", "")).lower()
+                is_direct = dep_type == "direct"
+                remember(name, resolved, is_direct)
+
+    return list(collected.values())
+
+
+def parse_csproj_package_references(path: Path) -> list[Dependency]:
+    """Parse NuGet PackageReference entries from a .csproj file."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    dependencies: list[Dependency] = []
+    for elem in root.iter():
+        if _xml_local_name(elem.tag) != "PackageReference":
+            continue
+        include = elem.attrib.get("Include") or elem.attrib.get("include")
+        version = elem.attrib.get("Version") or elem.attrib.get("version")
+        if not include or not version:
+            continue
+        if version.startswith("$("):
+            continue
+        dependencies.append(
+            Dependency(
+                name=include.strip(),
+                version=version.strip(),
+                ecosystem="NuGet",
+                is_direct=True,
+                source=str(path),
+            )
+        )
+    return dependencies
+
+
+def parse_pom_xml(path: Path) -> list[Dependency]:
+    """Parse Maven dependencies from pom.xml (resolved versions only, no property expansion)."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    dependencies: list[Dependency] = []
+    for elem in root.iter():
+        if _xml_local_name(elem.tag) != "dependency":
+            continue
+        group_id = artifact_id = version = None
+        for child in elem:
+            ln = _xml_local_name(child.tag)
+            text = (child.text or "").strip()
+            if ln == "groupId":
+                group_id = text
+            elif ln == "artifactId":
+                artifact_id = text
+            elif ln == "version":
+                version = text
+        if not group_id or not artifact_id or not version:
+            continue
+        if version.startswith("${"):
+            continue
+        name = f"{group_id}:{artifact_id}"
+        dependencies.append(
+            Dependency(
+                name=name,
+                version=version,
+                ecosystem="Maven",
+                is_direct=True,
+                source=str(path),
+            )
+        )
+    return dependencies
+
+
+def parse_package_resolved(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
+    """Parse Swift Package Manager pins from Package.resolved."""
+    payload = read_json_file(path)
+    pins = payload.get("pins")
+    if pins is None and isinstance(payload.get("object"), dict):
+        pins = payload["object"].get("pins")
+    if not isinstance(pins, list):
+        return []
+    dependencies: list[Dependency] = []
+    for pin in pins:
+        if not isinstance(pin, dict):
+            continue
+        identity = str(pin.get("identity", "")).strip()
+        if not identity:
+            continue
+        state = pin.get("state") or {}
+        if not isinstance(state, dict):
+            continue
+        version = str(state.get("version", "")).strip()
+        if not version:
+            branch = str(state.get("branch", "")).strip()
+            revision = str(state.get("revision", "")).strip()
+            version = branch or revision or ""
+        if not version:
+            continue
+        dependencies.append(
+            Dependency(
+                name=identity,
+                version=version,
+                ecosystem="SwiftURL",
+                is_direct=identity in direct_dep_names,
+                source=str(path),
+            )
+        )
+    return dependencies
+
+
+def parse_package_swift_direct_names(path: Path) -> set[str]:
+    """Best-effort: extract `.package(` identity/url fragments from Package.swift for direct marking."""
+    text = path.read_text(encoding="utf-8")
+    names: set[str] = set()
+    for match in re.finditer(r'name:\s*"([^"]+)"', text):
+        names.add(match.group(1))
+    for match in re.finditer(r"github\.com/[^/\s\"]+/([^./\s\"]+)", text):
+        names.add(match.group(1))
+    return names
+
+
+def parse_github_workflow_actions(path: Path) -> list[Dependency]:
+    """Extract pinned GitHub Actions from workflow YAML (`uses:`)."""
+    text = path.read_text(encoding="utf-8")
+    uses_pattern = re.compile(r"(?m)^\s*-\s*uses:\s*([^\s#]+)|^\s*uses:\s*([^\s#]+)")
+    collected: dict[tuple[str, str], Dependency] = {}
+    for match in uses_pattern.finditer(text):
+        ref = (match.group(1) or match.group(2) or "").strip().strip("'\"")
+        if ref.startswith("${") or ref.startswith("./") or ref.startswith("docker://"):
+            continue
+        if "@" not in ref:
+            continue
+        name, version = ref.rsplit("@", 1)
+        if "/" not in name:
+            continue
+        key = (name.lower(), version)
+        if key in collected:
+            continue
+        collected[key] = Dependency(
+            name=name,
+            version=version,
+            ecosystem="GitHub Actions",
+            is_direct=True,
+            source=str(path),
+        )
+    return list(collected.values())
 

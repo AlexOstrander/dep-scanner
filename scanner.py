@@ -117,6 +117,16 @@ def detect_package_manager_label(input_paths: list[Path]) -> str:
         "go.sum": "go",
         "composer.json": "composer",
         "composer.lock": "composer",
+        "gemfile": "rubygems",
+        "gemfile.lock": "rubygems",
+        "pubspec.yaml": "pub",
+        "pubspec.lock": "pub",
+        "mix.exs": "hex",
+        "mix.lock": "hex",
+        "packages.lock.json": "nuget",
+        "pom.xml": "maven",
+        "package.swift": "swift",
+        "package.resolved": "swift",
     }
 
     managers = {
