@@ -8,6 +8,7 @@ from dep_scanner.parsers import (
     parse_gemfile_lock,
     parse_github_workflow_actions,
     parse_go_mod,
+    parse_go_mod_direct_dependencies,
     parse_go_sum,
     parse_mix_lock,
     parse_package_lock,
@@ -123,6 +124,33 @@ def test_parse_cargo_toml_extracts_workspace_and_target_dependencies(tmp_path: P
 
     dependency_names = parse_cargo_toml(cargo_toml)
     assert {"serde", "tokio", "libc"}.issubset(dependency_names)
+
+
+def test_parse_go_mod_direct_dependencies_inline_and_block(tmp_path: Path) -> None:
+    go_mod = tmp_path / "go.mod"
+    go_mod.write_text(
+        "\n".join(
+            [
+                "module example.com/demo",
+                "",
+                "go 1.22",
+                "",
+                "require (",
+                "    github.com/gin-gonic/gin v1.10.0",
+                "    golang.org/x/net v0.30.0 // indirect",
+                ")",
+                "",
+                "require github.com/stretchr/testify v1.9.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    dependencies = parse_go_mod_direct_dependencies(go_mod)
+    by_name = {(d.name, d.version): d for d in dependencies}
+    assert ("github.com/gin-gonic/gin", "v1.10.0") in by_name
+    assert ("github.com/stretchr/testify", "v1.9.0") in by_name
+    assert ("golang.org/x/net", "v0.30.0") not in by_name
+    assert all(d.ecosystem == "Go" and d.is_direct for d in dependencies)
 
 
 def test_parse_go_mod_extracts_direct_dependencies(tmp_path: Path) -> None:

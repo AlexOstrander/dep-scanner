@@ -6,7 +6,7 @@ Python-based CLI and web tool that:
 - Queries both OSV.dev and GitHub Security Advisories.
 - Produces human-readable console output and a JSON report.
 - Supports advisory/package suppression via an ignore file.
-- Flags potentially unmaintained packages by release age.
+- Flags potentially unmaintained packages by release age (per-ecosystem registry timestamps: PyPI, npm, crates.io, Packagist, Go proxy, RubyGems, NuGet, pub.dev, Hex, Maven Central, and GitHub Actions release dates where applicable; Swift SPM pins are skipped when no reliable timestamp exists).
 
 ## Supported Inputs
 
@@ -76,5 +76,8 @@ Use JSON shaped like `ignore-list.example.json`:
 
 - If lockfiles are missing, the scanner attempts best-effort resolution.
 - For plain `requirements.txt`, transitive dependencies are resolved from PyPI metadata.
+- **`go.mod` without `go.sum`:** direct `require` lines (non-indirect) are scanned with the version written in the file; transitives from `go.sum` are not available.
+- **`Cargo.toml` without `Cargo.lock`:** not scanned (versions are often ranges; add `Cargo.lock` for pinned crates).
+- **Duplicate basenames:** if you pass two paths whose filenames match case-insensitively (e.g. two `package.json` files), the **first** path wins and a warning lists the skipped path.
 - GitHub advisory API is rate-limited without a token; set `GITHUB_TOKEN` or `--github-token`.
 

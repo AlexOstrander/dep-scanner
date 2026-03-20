@@ -10,6 +10,7 @@ from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
+from dep_scanner.input_index import basename_index, path_for_basename
 from dep_scanner.models import Dependency
 from dep_scanner.parsers import (
     parse_cargo_lock,
@@ -21,6 +22,7 @@ from dep_scanner.parsers import (
     parse_gemfile_lock,
     parse_github_workflow_actions,
     parse_go_mod,
+    parse_go_mod_direct_dependencies,
     parse_go_sum,
     parse_mix_exs_direct_names,
     parse_mix_lock,
@@ -40,14 +42,6 @@ from dep_scanner.parsers import (
 )
 
 PYPI_BASE_URL = "https://pypi.org/pypi"
-
-
-def _first_input_path(inputs: list[Path], filename: str) -> Path | None:
-    """Return the first input whose basename matches ``filename``."""
-    for path in inputs:
-        if path.name == filename:
-            return path
-    return None
 
 
 def _github_workflow_paths(inputs: list[Path]) -> list[Path]:
@@ -79,12 +73,12 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
     warnings: list[str] = []
     resolved_dependencies: list[Dependency] = []
 
-    path_set = {path.name: path for path in inputs}
-    # Callers (e.g. run_scan) pass only paths that exist; treat ``inputs`` as the scan file list.
+    basename_map, duplicate_warnings = basename_index(inputs)
+    warnings.extend(duplicate_warnings)
 
-    package_json_path = path_set.get("package.json")
-    package_lock_path = path_set.get("package-lock.json")
-    yarn_lock_path = path_set.get("yarn.lock")
+    package_json_path = basename_map.get("package.json")
+    package_lock_path = basename_map.get("package-lock.json")
+    yarn_lock_path = basename_map.get("yarn.lock")
 
     if package_json_path:
         direct_npm_dependencies, npm_specs = parse_package_json(package_json_path)
@@ -102,8 +96,8 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
         resolved_dependencies.extend(parse_package_lock(package_lock_path, set()))
         warnings.append("package-lock.json provided without package.json; direct dependency detection may be incomplete.")
 
-    go_sum_path = path_set.get("go.sum")
-    go_mod_path = path_set.get("go.mod")
+    go_sum_path = basename_map.get("go.sum")
+    go_mod_path = basename_map.get("go.mod")
     if go_sum_path:
         direct_go_dependencies: set[str] = set()
         if go_mod_path:
@@ -112,10 +106,13 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
             warnings.append("go.sum provided without go.mod; direct dependency detection may be incomplete.")
         resolved_dependencies.extend(parse_go_sum(go_sum_path, direct_go_dependencies))
     elif go_mod_path:
-        warnings.append("go.mod provided without go.sum; dependency tree may be incomplete.")
+        resolved_dependencies.extend(parse_go_mod_direct_dependencies(go_mod_path))
+        warnings.append(
+            "go.mod provided without go.sum; only direct requires from go.mod are scanned (transitive graph from go.sum unavailable).",
+        )
 
-    composer_lock_path = path_set.get("composer.lock")
-    composer_json_path = path_set.get("composer.json")
+    composer_lock_path = basename_map.get("composer.lock")
+    composer_json_path = basename_map.get("composer.json")
     if composer_lock_path:
         direct_php_dependencies: set[str] = set()
         if composer_json_path:
@@ -126,10 +123,10 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
     elif composer_json_path:
         warnings.append("composer.json provided without composer.lock; dependency tree may be incomplete.")
 
-    requirements_path = path_set.get("requirements.txt")
-    poetry_lock_path = path_set.get("poetry.lock")
-    pipfile_lock_path = path_set.get("Pipfile.lock")
-    uv_lock_path = path_set.get("uv.lock")
+    requirements_path = basename_map.get("requirements.txt")
+    poetry_lock_path = basename_map.get("poetry.lock")
+    pipfile_lock_path = basename_map.get("pipfile.lock")
+    uv_lock_path = basename_map.get("uv.lock")
 
     if requirements_path:
         direct_requirements = parse_requirements_txt(requirements_path)
@@ -159,9 +156,9 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
         warnings.append("Pipfile.lock provided without requirements.txt; direct dependency detection may be incomplete.")
         resolved_dependencies.extend(parse_pipfile_lock(pipfile_lock_path, set()))
 
-    cargo_lock_path = path_set.get("Cargo.lock")
+    cargo_lock_path = basename_map.get("cargo.lock")
     if cargo_lock_path:
-        cargo_toml_path = path_set.get("Cargo.toml")
+        cargo_toml_path = basename_map.get("cargo.toml")
         direct_cargo_names: set[str] = set()
         if cargo_toml_path:
             direct_cargo_names = parse_cargo_toml(cargo_toml_path)
@@ -169,33 +166,33 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
             warnings.append("Cargo.lock provided without Cargo.toml; direct dependency detection may be incomplete.")
         resolved_dependencies.extend(parse_cargo_lock(cargo_lock_path, direct_cargo_names))
 
-    gemfile_lock_path = _first_input_path(inputs, "Gemfile.lock")
+    gemfile_lock_path = path_for_basename(basename_map, "Gemfile.lock")
     if gemfile_lock_path:
-        gemfile_path = _first_input_path(inputs, "Gemfile")
+        gemfile_path = path_for_basename(basename_map, "Gemfile")
         direct_ruby_names = parse_gemfile_direct_names(gemfile_path) if gemfile_path else set()
         resolved_dependencies.extend(parse_gemfile_lock(gemfile_lock_path, direct_ruby_names))
-    elif _first_input_path(inputs, "Gemfile"):
+    elif path_for_basename(basename_map, "Gemfile"):
         warnings.append("Gemfile provided without Gemfile.lock; Ruby dependency tree may be incomplete.")
 
-    pubspec_lock_path = _first_input_path(inputs, "pubspec.lock")
+    pubspec_lock_path = path_for_basename(basename_map, "pubspec.lock")
     if pubspec_lock_path:
-        pubspec_yaml_path = _first_input_path(inputs, "pubspec.yaml")
+        pubspec_yaml_path = path_for_basename(basename_map, "pubspec.yaml")
         direct_pub_names = (
             parse_pubspec_yaml_direct_names(pubspec_yaml_path) if pubspec_yaml_path else set()
         )
         resolved_dependencies.extend(parse_pubspec_lock(pubspec_lock_path, direct_pub_names))
-    elif _first_input_path(inputs, "pubspec.yaml"):
+    elif path_for_basename(basename_map, "pubspec.yaml"):
         warnings.append("pubspec.yaml provided without pubspec.lock; Dart/Flutter resolution skipped.")
 
-    mix_lock_path = _first_input_path(inputs, "mix.lock")
+    mix_lock_path = path_for_basename(basename_map, "mix.lock")
     if mix_lock_path:
-        mix_exs_path = _first_input_path(inputs, "mix.exs")
+        mix_exs_path = path_for_basename(basename_map, "mix.exs")
         direct_mix_names = parse_mix_exs_direct_names(mix_exs_path) if mix_exs_path else set()
         resolved_dependencies.extend(parse_mix_lock(mix_lock_path, direct_mix_names))
-    elif _first_input_path(inputs, "mix.exs"):
+    elif path_for_basename(basename_map, "mix.exs"):
         warnings.append("mix.exs provided without mix.lock; Elixir/Hex resolution skipped.")
 
-    packages_lock_path = _first_input_path(inputs, "packages.lock.json")
+    packages_lock_path = path_for_basename(basename_map, "packages.lock.json")
     if packages_lock_path:
         resolved_dependencies.extend(parse_packages_lock_json(packages_lock_path, set()))
 
@@ -203,18 +200,18 @@ def resolve_dependencies(inputs: list[Path], http_client: httpx.Client) -> tuple
         if input_path.suffix.lower() == ".csproj":
             resolved_dependencies.extend(parse_csproj_package_references(input_path))
 
-    pom_path = _first_input_path(inputs, "pom.xml")
+    pom_path = path_for_basename(basename_map, "pom.xml")
     if pom_path:
         resolved_dependencies.extend(parse_pom_xml(pom_path))
 
-    package_resolved_path = _first_input_path(inputs, "Package.resolved")
+    package_resolved_path = path_for_basename(basename_map, "Package.resolved")
     if package_resolved_path:
-        package_swift_path = _first_input_path(inputs, "Package.swift")
+        package_swift_path = path_for_basename(basename_map, "Package.swift")
         direct_swift_names = (
             parse_package_swift_direct_names(package_swift_path) if package_swift_path else set()
         )
         resolved_dependencies.extend(parse_package_resolved(package_resolved_path, direct_swift_names))
-    elif _first_input_path(inputs, "Package.swift"):
+    elif path_for_basename(basename_map, "Package.swift"):
         warnings.append("Package.swift provided without Package.resolved; Swift resolution skipped.")
 
     for workflow_path in _github_workflow_paths(inputs):

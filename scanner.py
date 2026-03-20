@@ -11,6 +11,7 @@ from pathlib import Path
 from rich.console import Console
 import uvicorn
 
+from dep_scanner.input_index import detect_package_manager_label
 from dep_scanner.reporting import render_human_report, write_json_report
 from dep_scanner.scanner import run_scan
 
@@ -99,45 +100,6 @@ def build_default_scan_report_path(input_paths: list[Path]) -> Path:
     package_manager_label = detect_package_manager_label(input_paths)
     project_root = Path(__file__).resolve().parent
     return project_root / "scans" / f"scan-report_{package_manager_label}_{timestamp}.json"
-
-
-def detect_package_manager_label(input_paths: list[Path]) -> str:
-    """Infer package manager label from known manifest/lockfile names."""
-    file_to_manager = {
-        "package.json": "npm",
-        "package-lock.json": "npm",
-        "yarn.lock": "npm",
-        "requirements.txt": "pypi",
-        "poetry.lock": "pypi",
-        "pipfile.lock": "pypi",
-        "uv.lock": "pypi",
-        "cargo.toml": "cargo",
-        "cargo.lock": "cargo",
-        "go.mod": "go",
-        "go.sum": "go",
-        "composer.json": "composer",
-        "composer.lock": "composer",
-        "gemfile": "rubygems",
-        "gemfile.lock": "rubygems",
-        "pubspec.yaml": "pub",
-        "pubspec.lock": "pub",
-        "mix.exs": "hex",
-        "mix.lock": "hex",
-        "packages.lock.json": "nuget",
-        "pom.xml": "maven",
-        "package.swift": "swift",
-        "package.resolved": "swift",
-    }
-
-    managers = {
-        manager
-        for path in input_paths
-        for filename, manager in file_to_manager.items()
-        if path.name.lower() == filename
-    }
-    if not managers:
-        return "mixed"
-    return "-".join(sorted(managers))
 
 
 if __name__ == "__main__":

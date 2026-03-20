@@ -48,7 +48,12 @@ def run_scan(
 
         ignored_advisories, ignored_packages = load_ignore_rules(ignore_file)
         filtered_findings = apply_ignore_rules(findings, ignored_advisories, ignored_packages)
-        package_health = build_package_health(dependencies, months_unmaintained, http_client)
+        package_health = build_package_health(
+            dependencies,
+            months_unmaintained,
+            http_client,
+            github_token=github_token,
+        )
 
     total_dependencies = len(dependencies)
     vulnerable_dependencies = len(filtered_findings)

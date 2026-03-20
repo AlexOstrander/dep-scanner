@@ -333,6 +333,58 @@ def parse_go_mod(path: Path) -> set[str]:
     return direct_dependencies
 
 
+def parse_go_mod_direct_dependencies(path: Path) -> list[Dependency]:
+    """Direct non-indirect ``require`` entries from go.mod with module path and version as declared."""
+    dependencies: list[Dependency] = []
+    in_require_block = False
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("//"):
+            continue
+        is_indirect = "// indirect" in raw_line
+        line_no_comment = raw_line.split("//", 1)[0].strip()
+        if not line_no_comment:
+            continue
+
+        if line_no_comment == "require (":
+            in_require_block = True
+            continue
+        if in_require_block and line_no_comment == ")":
+            in_require_block = False
+            continue
+
+        if in_require_block:
+            parts = line_no_comment.split()
+            if len(parts) >= 2 and not is_indirect:
+                dependencies.append(
+                    Dependency(
+                        name=parts[0],
+                        version=parts[1],
+                        ecosystem="Go",
+                        is_direct=True,
+                        source=str(path),
+                    )
+                )
+            continue
+
+        if line_no_comment.startswith("require "):
+            rest = line_no_comment[len("require ") :].strip()
+            parts = rest.split()
+            if len(parts) >= 2 and not is_indirect:
+                dependencies.append(
+                    Dependency(
+                        name=parts[0],
+                        version=parts[1],
+                        ecosystem="Go",
+                        is_direct=True,
+                        source=str(path),
+                    )
+                )
+
+    return dependencies
+
+
 def parse_go_sum(path: Path, direct_dep_names: set[str]) -> list[Dependency]:
     """Parse resolved Go module versions from go.sum entries."""
     dependencies: dict[tuple[str, str], Dependency] = {}
